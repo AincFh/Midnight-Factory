@@ -8,6 +8,7 @@ from http.server import SimpleHTTPRequestHandler
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
 
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 ARTIFACTS=ROOT/"test-results"
@@ -61,7 +62,16 @@ with socketserver.TCPServer(("127.0.0.1",0),Handler) as server:
           const r=c.getBoundingClientRect();return {width:c.width,height:c.height,
           screenWidth:r.width,screenHeight:r.height};})()""")
         assert bounds["width"]>500 and bounds["height"]>350,bounds
+        # Reproduce the real first-run tutorial overlap; do not close or
+        # forcibly hide the banner before interacting with the game.
+        tutorial=browser.find_element(By.ID,'tutorial-banner')
+        WebDriverWait(browser,12).until(lambda d:tutorial.is_displayed())
+        assert browser.find_element(By.ID,'tutorial-skip').is_displayed()
         mine=browser.find_element(By.CSS_SELECTOR,'#build-panel button[data-id="mine"]')
+        hit=browser.execute_script("""const b=arguments[0].getBoundingClientRect();
+          const e=document.elementFromPoint(b.left+b.width/2,b.top+b.height/2);
+          return e===arguments[0]||arguments[0].contains(e);""",mine)
+        assert hit,"Tutorial should not block the center of the Mine control"
         mine.click()
         assert "active" in browser.find_element(By.CSS_SELECTOR,'#build-panel button[data-id="mine"]').get_attribute("class")
         mine.click()
