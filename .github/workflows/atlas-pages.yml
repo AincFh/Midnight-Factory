@@ -20,8 +20,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test tests/delivery.test.mjs
-      - run: test -s index.html && test -s midnight-factory.html && test -s LICENSE
+      - run: node --test tests/*.test.mjs
+      - name: Validate guide module syntax
+        run: node --check atlas-guide.mjs && node --check atlas-guide-data.mjs
+      - run: test -s index.html && test -s midnight-factory.html && test -s LICENSE && test -s atlas-guide.mjs && test -s atlas-guide.css
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
         with:
