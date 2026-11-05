@@ -1,2 +1,31 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="0;url=./midnight-factory.html"><link rel="icon" href="./favicon.svg" type="image/svg+xml"><title>Midnight Factory · 工厂自动化</title><meta name="description" content="由 Gakuseei 创作的 MIT 开源游戏 · AincFh Fork 实验版本"></head><body style="font:16px system-ui;background:#10141d;color:#e8edff;padding:12vh 8vw"><h1>Midnight Factory</h1><p>正在打开原作者的工厂模拟游戏。</p><p><a href="./midnight-factory.html" style="color:#bdd3ff">进入工厂模拟游戏</a></p><p>原项目：<a href="https://github.com/Gakuseei/Midnight-Factory" style="color:#bdd3ff">Gakuseei/Midnight-Factory</a>（MIT）</p></body></html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101624"><meta name="description" content="Midnight Factory — Gakuseei 原创 MIT 工厂模拟游戏，ATLAS Fork 附带中英文新手引导。">
+<title>Midnight Factory · 工厂自动化</title>
+<link rel="icon" type="image/svg+xml" href="./favicon.svg"><link rel="stylesheet" href="./atlas-guide.css">
+</head><body>
+<main class="stage" aria-label="Midnight Factory 工厂游戏">
+ <iframe id="factory" src="./midnight-factory.html" title="Gakuseei · Midnight Factory 完整游戏" allow="fullscreen; autoplay" loading="eager"></iframe>
+</main>
+<nav class="guide-dock" aria-label="帮助与设置">
+ <span class="guide-dock-brand">MIDNIGHT <b>FACTORY</b></span>
+ <button id="locale" aria-label="切换引导语言">中文 / EN</button>
+ <button id="guide-toggle" aria-expanded="false" aria-controls="guide-panel">新手引导 <span aria-hidden="true">✦</span></button>
+</nav>
+<section id="guide-panel" class="guide-panel" aria-labelledby="guide-title" hidden>
+ <header class="guide-header">
+  <div><small id="guide-series">FACTORY FIELD GUIDE</small><h1 id="guide-title">第一条生产线</h1></div>
+  <button id="guide-close" title="关闭引导" aria-label="关闭引导">×</button>
+ </header>
+ <div class="progress"><span id="step-number">01 / 07</span><div class="dots" id="step-dots"></div></div>
+ <div class="guide-content"><div id="guide-icon" class="guide-icon">⛏</div><h2 id="step-title"></h2><p id="step-description"></p><p class="hint" id="step-hint"></p></div>
+ <div class="guide-actions"><button id="previous" class="subtle">上一步</button><button id="locate" class="subtle">定位工具</button><button id="next" class="next">下一步 →</button></div>
+ <footer class="guide-foot">
+  <p id="guide-credit">原作由 Gakuseei 开发。本页面只新增操作引导，不改写游戏原有玩法。</p>
+  <div><a href="https://github.com/Gakuseei/Midnight-Factory" target="_blank" rel="noopener">原作者 / Upstream</a><a href="https://github.com/AincFh/Midnight-Factory" target="_blank" rel="noopener">ATLAS Fork</a><a href="./midnight-factory.html">原版直达 ↗</a></div>
+ </footer>
+</section>
+<div id="guide-toast" role="status" aria-live="polite"></div>
+<script type="module" src="./atlas-guide.mjs"></script>
+</body></html>

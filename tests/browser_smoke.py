@@ -28,10 +28,26 @@ with socketserver.TCPServer(("127.0.0.1",0),Handler) as server:
     browser.set_page_load_timeout(45)
     try:
         browser.get("http://127.0.0.1:%d/" % server.server_address[1])
-        for _ in range(30):
-            if "midnight-factory.html" in browser.current_url:break
-            time.sleep(.1)
-        assert "midnight-factory.html" in browser.current_url, browser.current_url
+        has_guide=bool(browser.execute_script("return !!document.getElementById('factory')"))
+        if has_guide:
+            # Verify the original game is embedded, and the ATLAS guide is accessible.
+            guide=browser.find_element(By.ID,"guide-toggle")
+            if browser.find_element(By.ID,"guide-panel").get_attribute("hidden") is not None:
+                guide.click()
+            assert browser.find_element(By.ID,"step-title").text
+            locale=browser.find_element(By.ID,"locale")
+            before=browser.find_element(By.ID,"step-title").text
+            locale.click()
+            after=browser.find_element(By.ID,"step-title").text
+            assert before!=after, {"before":before,"after":after}
+            browser.find_element(By.ID,"guide-close").click()
+            assert browser.find_element(By.ID,"guide-panel").get_attribute("hidden") is not None
+            browser.switch_to.frame(browser.find_element(By.ID,"factory"))
+        else:
+            for _ in range(30):
+                if "midnight-factory.html" in browser.current_url:break
+                time.sleep(.1)
+            assert "midnight-factory.html" in browser.current_url, browser.current_url
         for _ in range(65):
             ready=browser.execute_script("""return {
                 money:document.querySelector('#money-val')?.textContent||'',
