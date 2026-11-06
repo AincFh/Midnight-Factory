@@ -263,6 +263,27 @@ kbd.shortcut-key {
 #building-info-panel .bip-row { font-size: 12px; font-family: "Fira Code",monospace; color: var(--text); margin: 4px 0; }
 #building-info-panel .bip-delete { margin-top: 10px; padding: 5px 10px; font-size: 11px; background: rgba(210,91,91,0.2); border: 1px solid var(--danger); border-radius: 6px; color: var(--danger); cursor: pointer; width: 100%; transition: background 0.2s; }
 #building-info-panel .bip-delete:hover { background: rgba(210,91,91,0.4); }
+/* Original export-commission board follows the existing dark factory UI. */
+#factory-contract-overlay[hidden]{display:none}
+#factory-contract-overlay{position:fixed;inset:0;z-index:135;background:rgba(5,9,18,.78);backdrop-filter:blur(7px);display:grid;place-items:center;padding:16px}
+#factory-contract-sheet{width:min(510px,100%);max-height:calc(100dvh - 32px);overflow:auto;background:linear-gradient(145deg,#20293a,#131c28);border:1px solid #688c91;border-radius:16px;box-shadow:0 18px 66px #0008;color:#e7f4ec;padding:25px;font-family:inherit}
+#factory-contract-sheet header{display:flex;align-items:flex-start;justify-content:space-between;gap:15px;border-bottom:1px solid #50636a;padding-bottom:16px;margin-bottom:18px}
+#factory-contract-sheet header small{color:#a3d8c0;letter-spacing:2px;font-size:9px}
+#factory-contract-sheet header h2{font-size:23px;margin:7px 0;color:#f0e5b5}
+#factory-contract-sheet header p{font-size:12px;color:#9ab5b1;line-height:1.65;margin:0}
+#factory-contract-close{flex:0 0 39px;height:39px;border-radius:50%;border:1px solid #718d97;background:#24384a;color:#fff;font-size:25px;cursor:pointer}
+#factory-contract-name{font-size:20px;margin:8px 0 12px}
+#factory-contract-item,#factory-contract-progress{font-size:13px;color:#bed3d1;line-height:1.6}
+.contract-stage{font-size:10px;letter-spacing:1.5px;color:#b1dfbc;font-weight:800}
+.contract-progress{height:12px;border-radius:20px;background:#273f47;border:1px solid #3f6871;margin:15px 0 7px;overflow:hidden}
+#factory-contract-fill{height:100%;width:0;background:linear-gradient(90deg,#77c2a7,#b8dfa2);transition:width .2s ease}
+#factory-contract-reward{border:1px solid #52735d;background:#203c34;border-radius:8px;color:#d7e8b6;padding:12px;font-size:13px;margin:14px 0}
+#factory-contract-claim{width:100%;min-height:47px;border:1px solid #b1d8b7;background:#92c29b;color:#0e1b1e;border-radius:9px;font:800 13px inherit;cursor:pointer}
+#factory-contract-claim:disabled{background:#405754;color:#a7b4ae;cursor:not-allowed;opacity:.72}
+.contract-explain{font-size:11px;line-height:1.6;color:#9cb0b1;margin-top:16px}
+#factory-contract-sheet button:focus-visible,#factory-contract-btn:focus-visible{outline:3px solid #f1d48c;outline-offset:2px}
+@media(max-width:500px){#factory-contract-sheet{padding:17px}#factory-contract-sheet header h2{font-size:19px}}
+@media(prefers-reduced-motion:reduce){#factory-contract-fill{transition:none}}
 </style>
 </head>
 <body>
@@ -309,6 +330,7 @@ kbd.shortcut-key {
   <div id="sfx-btn" class="circle-btn" title="Toggle Sound Effects">
     <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
   </div>
+  <button type="button" id="factory-contract-btn" class="circle-btn" title="Export Contracts (new production milestones)" aria-label="Open export contracts" style="color:#b5e6c1;font-weight:800;font-size:17px;">▤</button>
   <div id="recipe-btn" class="circle-btn" title="Recipe Book (B)">
     <svg viewBox="0 0 24 24"><path d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 14H8v-2h8v2zm0-4H8v-2h8v2zm0-4H8V6h8v2z"/></svg>
   </div>
@@ -342,6 +364,23 @@ kbd.shortcut-key {
   </div>
 </div>
 
+
+<div id="factory-contract-overlay" role="presentation" hidden>
+  <section id="factory-contract-sheet" role="dialog" aria-modal="true" aria-labelledby="factory-contract-title">
+    <header><div><small>FACTORY EXPORT COMMISSIONS</small><h2 id="factory-contract-title">Production Contracts</h2><p>Fulfil actual outbound deliveries through your Seller. Sales before this contract do not count.</p></div>
+      <button type="button" id="factory-contract-close" aria-label="Close export contracts">×</button></header>
+    <div id="factory-contract-body">
+      <div class="contract-stage">Loading factory shipping log...</div>
+      <h3 id="factory-contract-name">Waiting for worker...</h3>
+      <p id="factory-contract-item">The five signed export deals open one after another.</p>
+      <div class="contract-progress"><div id="factory-contract-fill"></div></div>
+      <div id="factory-contract-progress" aria-live="polite">0 / 0 confirmed sales</div>
+      <div id="factory-contract-reward">Reward locked until shipment arrives.</div>
+      <button id="factory-contract-claim" type="button" disabled>Claim completed contract</button>
+      <p class="contract-explain">Only items that enter a real Seller tile count. Building, mining, moving items or opening this panel cannot create qualifying sales or rewards.</p>
+    </div>
+  </section>
+</div>
 <div id="seed-display">
   Seed: <span id="seed-val"></span>
   <span id="export-save-btn" title="Download save file" style="cursor:pointer;opacity:0.7;margin-left:6px;">&#x2B07;</span>
