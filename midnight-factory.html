@@ -5056,6 +5056,7 @@ class Game {
             const msg=e.data;
             if (msg.type==='init_done') {
                 this.state.map=msg.map; this.state.money=msg.money; this.state.rp=msg.rp;
+                if(msg.contractBoard)this.updateFactoryContractBoard(msg.contractBoard);
                 this.state.buildings=msg.buildings||new Array(Config.MAP_H).fill(null).map(()=>new Array(Config.MAP_W).fill(null));
                 for (let _iy=0;_iy<this.state.buildings.length;_iy++) for (let _ix=0;_ix<(this.state.buildings[_iy]||[]).length;_ix++) { const _ib=this.state.buildings[_iy][_ix]; if (_ib&&_ib.type==='mine'&&!this.state.map[_iy][_ix]) _ib.isDepleted=true; if (_ib&&_ib.type==='vein_miner'&&((!_ib.veinTiles||_ib.veinTiles.length===0)||(_ib.initialOre>0&&_ib.remainingOre<=0))) _ib.isDepleted=true; }
                 if (msg.unlockedTechs) this.ui.unlockedTechs=new Set(msg.unlockedTechs);
@@ -5073,6 +5074,7 @@ class Game {
                 if (msg.lifetimeSold!==undefined) this.state.lifetimeSold=msg.lifetimeSold;
                 if (msg.lifetimeItems!==undefined) this.state.lifetimeItems=msg.lifetimeItems;
                 if (msg.statTotals) this.state.statTotals=msg.statTotals;
+                if (msg.contractBoard)this.updateFactoryContractBoard(msg.contractBoard);
                 this.state.quantumCoreCount=msg.quantumCoreCount||0;
                 this.state.singularityCount=msg.singularityCount||0;
                 this.uiState.hoverData=msg.hoverData;
@@ -5204,6 +5206,801 @@ class Game {
                 this.ui.updateBuildMenuAvailability(this.state.money);
                 const tt=document.getElementById('tooltip'); if (tt) tt.style.display='none';
                 this.showSkillPulse();
+            } else if (msg.type==='contract_claimed') {
+                this.state.money=msg.money;this.state.rp=msg.rp;
+                this.ui.updateStats(msg.money,msg.rp);
+                this.updateFactoryContractBoard(msg.contractBoard);
+                this.showToast('Export fulfilled: '+msg.name+' · +
+                this._lastSaveJson = msg.json;
+                this._lastSaveData = msg.data;
+                try { localStorage.setItem('mf_save_'+this.seed, msg.json); }
+                catch(e) { this.showToast('Save failed \u2014 storage full!','rgba(210,91,91,0.9)',5000); }
+            } else if (msg.type==='ore_depleted') {
+                this.state.map[msg.y][msg.x]=null; this.ui.minimapBgData=null;
+                if(this._sfx) this._sfx.sfx('mine_depleted');
+                this.ui.invalidateMinimap();
+                this.renderer._depletedTiles.add(msg.x+','+msg.y);
+                const _db=this.state.buildings[msg.y]?.[msg.x];
+                if (_db && _db.type==='mine') { _db.isDepleted=true; this.showToast('\u26cf Mine at ['+msg.x+'],['+msg.y+'] exhausted', null, 3500); }
+                else if (_db && _db.type==='vein_miner') {
+                    if (_db.remainingOre!==undefined&&_db.remainingOre<=0&&_db.initialOre>0) { _db.isDepleted=true; this.showToast('\u26cf Vein Miner at ['+msg.x+'],['+msg.y+'] exhausted', null, 3500); }
+                } else if (_db) { _db.isDepleted=true; }
+            } else if (msg.type==='place_failed') {
+                this.uiState.placeFailTile={x:msg.x,y:msg.y,at:performance.now()};
+                if(this._sfx&&!this._isDragging) this._sfx.sfx('error');
+                if (msg.reason==='locked_ore') this.showToast('Requires Deep Mining or Exotic Mining skill');
+                else if (!this._isDragging) {
+                    if (msg.reason==='funds') this.showToast('Not enough credits ($'+msg.cost+' needed)');
+                    else if (msg.reason==='no_ore') this.showToast('Must be placed on an ore tile');
+                    else if (msg.reason==='occupied') this.showToast('Tile already occupied');
+                }
+            } else if (msg.type==='undo_done') {
+                this.showToast('Undone');
+            } else if (msg.type==='undo_failed') {
+                this.showToast('Nothing to undo');
+            } else if (msg.type==='milestone') {
+                if(this._sfx) this._sfx.sfx('milestone');
+                if(this._sfx && (msg.sfx==='quantum_core' || msg.text.includes('Quantum') || msg.text.includes('quantum'))) this._sfx.sfx('quantum_core');
+                if (this.renderer && this.renderer.spawnParticle) {
+                    const _msC=['#ffd700','#fff','#ffaa33','#ffe080'];
+                    const _cx=(this.renderer.camX+window.innerWidth/(2*this.renderer.zoom))/Config.TILE_SIZE;
+                    const _cy=(this.renderer.camY+window.innerHeight/(2*this.renderer.zoom))/Config.TILE_SIZE;
+                    for (let _i=0;_i<20;_i++) {
+                        const _ang=Math.random()*Math.PI*2, _spd=0.5+Math.random()*1.3;
+                        this.renderer.spawnParticle(_cx,_cy,{vx:Math.cos(_ang)*_spd,vy:Math.sin(_ang)*_spd,decay:0.018,size:4,color:_msC[_i%4]});
+                    }
+                    if (msg.sfx === 'quantum_core' || msg.text.includes('transcended') || msg.text.includes('Quantum Core')) {
+                        const _qp=this._lastQuantumAssemblerPos;
+                        const _qx2=_qp?_qp.x+0.5:_cx, _qy2=_qp?_qp.y+0.5:_cy;
+                        const _qC=['#e0d0ff','#a080ff','#ffffff','#ffd700'];
+                        for (let _i=0;_i<60;_i++) {
+                            const _ang=Math.random()*Math.PI*2, _spd=0.3+Math.random()*2.7;
+                            this.renderer.spawnParticle(_qx2,_qy2,{vx:Math.cos(_ang)*_spd,vy:Math.sin(_ang)*_spd,decay:0.010,size:3+Math.random()*3,color:_qC[Math.floor(Math.random()*4)]});
+                        }
+                    }
+                }
+                if (msg.text==='ASCENDANT') {
+                    this.showToast('You have built the impossible. The factory ascends.', 'gold', 5000);
+                    this.showMilestoneFlash();
+                    this._speed4xUnlocked=true;
+                    document.getElementById('btn-speed-4').style.display='';
+                    this.showToast('4x Speed unlocked!','rgba(91,170,106,0.9)',3000);
+                    setTimeout(()=>this.showAscendantScreen(msg.qc||35),1800);
+                } else {
+                    this.showToast(msg.text, 'gold');
+                    if (msg.text.includes('MAGNATE') || msg.text.includes('transcended') || msg.text.includes('5,000,000')
+                        || msg.text.includes('Quantum Factory') || msg.text.includes('Transcendence') || msg.text.includes('Singularity Loop')) {
+                        this.showMilestoneFlash();
+                    }
+                }
+                if (msg.text==='TRANSCENDENT FACTORY') {
+                    this.showToast('Beyond singularity. The factory transcends.', 'gold', 5000);
+                    this.showMilestoneFlash();
+                    setTimeout(()=>this.showTranscendentScreen(msg.qc||35),1800);
+                }
+                if (msg.text.includes('transcended')) setTimeout(()=>this.showEndScreen(),1800);
+            } else if (msg.type==='rp_gain') {
+                this.spawnRpFloat(msg.x, msg.y, msg.val);
+            } else if (msg.type==='seller_filter_set') {
+                const _sff=this.state.buildings[msg.y]?.[msg.x];
+                if (_sff) _sff.sellerFilter=msg.item;
+            } else if (msg.type==='filter_set') {
+                const _fb=this.state.buildings[msg.y]?.[msg.x];
+                if (_fb) { _fb.filterL=msg.filterL; _fb.filterR=msg.filterR; }
+            } else if (msg.type==='ore_synth_filter_set') {
+                const _osb=this.state.buildings[msg.y]?.[msg.x];
+                if (_osb) _osb.synthOre=msg.oreType;
+            }
+        };
+    }
+    setSkillTreeState(open){this.uiState.skillTreeOpen=open;}
+    loop(ts) {
+        requestAnimationFrame(this._loop);
+        this.uiState.selectedTool=this.ui.selectedTool;
+        this.uiState.rotation=this.ui.rotation;
+        this.uiState.unlockedTechs=this.ui.unlockedTechs;
+        this.renderer.draw(this.state,this.uiState,ts);
+        if (this.ui.minimapVisible) this.ui.drawMinimap(this.state,this.renderer.camX,this.renderer.camY,this.renderer.zoom);
+        if (this._copyMode) this._drawBlueprintOverlay();
+        this._drawVeinPreview();
+        this._drawBeltGhost();
+    }
+    _drawBeltGhost() {
+        if (this._copyMode||this._isDragging) return;
+        if (!this.ui.selectedTool||!this.ui.selectedTool.startsWith('belt')||!this.uiState.hoverTile) {
+            if (this._beltGhostDrawn) {
+                const _bgc=document.getElementById('blueprint-canvas');
+                if (_bgc) _bgc.getContext('2d').clearRect(0,0,_bgc.width,_bgc.height);
+                this._beltGhostDrawn=false;
+            }
+            return;
+        }
+        const bc=document.getElementById('blueprint-canvas');
+        if (!bc) return;
+        const hx=this.uiState.hoverTile.x, hy=this.uiState.hoverTile.y;
+        if (!this.state.buildings||hx<0||hy<0||hx>=Config.MAP_W||hy>=Config.MAP_H) return;
+        if (this.state.buildings[hy]&&this.state.buildings[hy][hx]) return; // tile occupied
+        const bctx=bc.getContext('2d');
+        if (bc.width!==window.innerWidth||bc.height!==window.innerHeight){bc.width=window.innerWidth;bc.height=window.innerHeight;}
+        bctx.clearRect(0,0,bc.width,bc.height);
+        const T=Config.TILE_SIZE*this.renderer.zoom;
+        const offX=-this.renderer.camX*this.renderer.zoom;
+        const offY=-this.renderer.camY*this.renderer.zoom;
+        const dir=this.ui.rotation;
+        const arrows=['\u2191','\u2192','\u2193','\u2190'];
+        const sx=hx*T+offX, sy=hy*T+offY;
+        bctx.globalAlpha=0.35;
+        bctx.fillStyle='rgba(91,106,175,0.3)';
+        bctx.fillRect(sx+1,sy+1,T-2,T-2);
+        bctx.strokeStyle='rgba(140,160,220,0.6)';
+        bctx.lineWidth=1.5;
+        bctx.strokeRect(sx+1,sy+1,T-2,T-2);
+        // Draw direction arrow
+        bctx.fillStyle='rgba(200,210,240,0.7)';
+        bctx.font=Math.round(T*0.5)+'px sans-serif';
+        bctx.textAlign='center';bctx.textBaseline='middle';
+        bctx.fillText(arrows[dir],sx+T/2,sy+T/2);
+        bctx.globalAlpha=1;
+        this._beltGhostDrawn=true;
+    }
+    _drawVeinPreview() {
+        if (this._copyMode) return; // Don't interfere with blueprint overlay
+        const bc=document.getElementById('blueprint-canvas');
+        if (!bc) return;
+        if (this.ui.selectedTool!=='vein_miner'||!this.uiState.hoverTile) {
+            if (this._veinPreviewDrawn) { bc.getContext('2d').clearRect(0,0,bc.width,bc.height); this._veinPreviewDrawn=false; }
+            return;
+        }
+        const hx=this.uiState.hoverTile.x, hy=this.uiState.hoverTile.y;
+        const map=this.state.map;
+        if (!map||!map[hy]||!map[hy][hx]) {
+            if (this._veinPreviewDrawn) { bc.getContext('2d').clearRect(0,0,bc.width,bc.height); this._veinPreviewDrawn=false; }
+            return;
+        }
+        const oreType=map[hy][hx];
+        // Flood-fill on main-thread map replica
+        const tiles=[];
+        const visited={};
+        const queue=[[hx,hy]];
+        visited[hy+','+hx]=true;
+        while (queue.length>0&&tiles.length<25) {
+            const c=queue.shift();
+            tiles.push(c);
+            for (let d=0;d<4;d++) {
+                const nx=c[0]+DIRS[d][0], ny=c[1]+DIRS[d][1];
+                if (nx<0||nx>=Config.MAP_W||ny<0||ny>=Config.MAP_H) continue;
+                const k=ny+','+nx;
+                if (visited[k]) continue;
+                if (map[ny]&&map[ny][nx]===oreType) { visited[k]=true; queue.push([nx,ny]); }
+            }
+        }
+        const bctx=bc.getContext('2d');
+        const W=window.innerWidth, H=window.innerHeight;
+        if (bc.width!==W||bc.height!==H){bc.width=W;bc.height=H;}
+        bctx.clearRect(0,0,W,H);
+        const T=Config.TILE_SIZE, z=this.renderer.zoom, cx=this.renderer.camX, cy=this.renderer.camY;
+        const oreC=Config.RESOURCES[oreType]?.color||'#5a7a4a';
+        bctx.fillStyle=oreC;
+        bctx.globalAlpha=0.25;
+        for (let i=0;i<tiles.length;i++) {
+            const px=(tiles[i][0]*T-cx)*z, py=(tiles[i][1]*T-cy)*z;
+            bctx.fillRect(px,py,T*z,T*z);
+        }
+        bctx.globalAlpha=0.6;
+        bctx.strokeStyle=oreC;
+        bctx.lineWidth=2;
+        for (let i=0;i<tiles.length;i++) {
+            const px=(tiles[i][0]*T-cx)*z, py=(tiles[i][1]*T-cy)*z;
+            bctx.strokeRect(px+1,py+1,T*z-2,T*z-2);
+        }
+        bctx.globalAlpha=1;
+        // Draw tile count label
+        bctx.font='bold 12px "Fira Code",monospace';
+        bctx.textAlign='center'; bctx.textBaseline='middle';
+        bctx.fillStyle='#fff';
+        const lx=(hx*T-cx)*z+T*z/2, ly2=(hy*T-cy)*z-10;
+        bctx.fillText(tiles.length+' tiles',lx,ly2);
+        this._veinPreviewDrawn=true;
+    }
+    setupInput() {
+        let isPan=false,isBuild=false,lx=0,ly=0,panDist=0,dragPlaced=new Set(),lastDragTile=null;
+        this._isDragging=false;
+        this.canvas.addEventListener('mousedown',e=>{
+            if (e.button===2){
+                if (this.ui.selectedTool&&this.ui.selectedTool!=="delete") {
+                    const wx=(e.clientX/this.renderer.zoom)+this.renderer.camX;
+                    const wy=(e.clientY/this.renderer.zoom)+this.renderer.camY;
+                    this.worker.postMessage({type:'delete',x:Math.floor(wx/Config.TILE_SIZE),y:Math.floor(wy/Config.TILE_SIZE)});
+                    this.hideBuildingInfo();
+                } else {
+                    const wx=(e.clientX/this.renderer.zoom)+this.renderer.camX;
+                    const wy=(e.clientY/this.renderer.zoom)+this.renderer.camY;
+                    const tx=Math.floor(wx/Config.TILE_SIZE), ty=Math.floor(wy/Config.TILE_SIZE);
+                    const b=this.state.buildings[ty]?.[tx];
+                    if (b) {
+                        if (this.ui.unlockedTechs.has('belt_upgrade') && b.type && b.type.startsWith('belt') && b.type !== 'belt3') {
+                            const _ng=b.type==='belt'?'belt2':'belt3';
+                            const _uc=Config.BUILD_COSTS[_ng]-Config.BUILD_COSTS[b.type];
+                            if (this.state.money >= _uc) {
+                                const _bdir=b.dir;
+                                this.worker.postMessage({type:'delete',x:tx,y:ty});
+                                setTimeout(()=>this.worker.postMessage({type:'place',x:tx,y:ty,buildingType:_ng,dir:_bdir}),30);
+                                this.showToast('Belt upgraded \u2192 '+_ng.replace('belt','Belt ').trim()+'  (-$'+_uc+')', null, 2000);
+                                if(this._sfx) this._sfx.sfx('belt_upgrade');
+                            } else {
+                                this.showToast('Need $'+_uc+' to upgrade');
+                            }
+                        } else {
+                            this.showBuildingInfo(b,tx,ty,e.clientX,e.clientY);
+                        }
+                    }
+                    else { isPan=true; lx=e.clientX; ly=e.clientY; panDist=0; this.hideBuildingInfo(); }
+                }
+            } else if (e.button===1){isPan=true;lx=e.clientX;ly=e.clientY;}
+            else if (e.button===0){
+                this.hideBuildingInfo();
+                if (this._copyMode==='select') {
+                    const wx2=(e.clientX/this.renderer.zoom)+this.renderer.camX;
+                    const wy2=(e.clientY/this.renderer.zoom)+this.renderer.camY;
+                    const tx2=Math.floor(wx2/Config.TILE_SIZE), ty2=Math.floor(wy2/Config.TILE_SIZE);
+                    if (!this._copyStart) {
+                        this._copyStart={x:tx2,y:ty2};
+                        this._copyRect={x1:tx2,y1:ty2,x2:tx2,y2:ty2};
+                    } else {
+                        const x1=Math.min(this._copyStart.x,tx2),y1=Math.min(this._copyStart.y,ty2);
+                        const x2=Math.max(this._copyStart.x,tx2),y2=Math.max(this._copyStart.y,ty2);
+                        const bp=[];
+                        for (let ry=y1;ry<=y2;ry++) for (let rx=x1;rx<=x2;rx++) {
+                            const bb=this.state.buildings[ry]&&this.state.buildings[ry][rx];
+                            if (bb) bp.push({dx:rx-x1,dy:ry-y1,type:bb.type,dir:bb.dir});
+                        }
+                        if (bp.length>0){
+                            this._blueprint=bp; this._copyMode='stamp'; this._copyStart=null;
+                            this.showToast('Blueprint copied ('+bp.length+' buildings) \u2014 click to stamp, C or Esc to cancel','rgba(91,106,175,0.9)',4000);
+                        } else {
+                            this._copyMode=null; this._copyStart=null;
+                            this.showToast('No buildings in selection','rgba(210,91,91,0.8)',2500);
+                        }
+                    }
+                } else if (this._copyMode==='stamp'&&this._blueprint) {
+                    const wx3=(e.clientX/this.renderer.zoom)+this.renderer.camX;
+                    const wy3=(e.clientY/this.renderer.zoom)+this.renderer.camY;
+                    const tx3=Math.floor(wx3/Config.TILE_SIZE), ty3=Math.floor(wy3/Config.TILE_SIZE);
+                    for (const item of this._blueprint)
+                        this.worker.postMessage({type:'place',x:tx3+item.dx,y:ty3+item.dy,buildingType:item.type,dir:item.dir});
+                } else {
+                    if (!this.ui.selectedTool){isPan=true;lx=e.clientX;ly=e.clientY;panDist=0;}
+                    else{
+                        isBuild=true;this._isDragging=true;dragPlaced.clear();panDist=0;lx=e.clientX;ly=e.clientY;
+                        if (e.shiftKey && this.ui.selectedTool && this.ui.selectedTool.startsWith('belt')) {
+                            const _swx=Math.floor(((e.clientX/this.renderer.zoom)+this.renderer.camX)/Config.TILE_SIZE);
+                            const _swy=Math.floor(((e.clientY/this.renderer.zoom)+this.renderer.camY)/Config.TILE_SIZE);
+                            this._shiftLineStart={x:_swx,y:_swy};
+                        } else {
+                            this._shiftLineStart=null;
+                        }
+                    }
+                }
+            }
+        });
+        this.canvas.addEventListener('contextmenu',e=>e.preventDefault());
+        this.canvas.addEventListener('mousemove',e=>{
+            const wx=(e.clientX/this.renderer.zoom)+this.renderer.camX;
+            const wy=(e.clientY/this.renderer.zoom)+this.renderer.camY;
+            const tx=Math.floor(wx/Config.TILE_SIZE), ty=Math.floor(wy/Config.TILE_SIZE);
+            if (!this.uiState.hoverTile||this.uiState.hoverTile.x!==tx||this.uiState.hoverTile.y!==ty) {
+                this.uiState.hoverTile={x:tx,y:ty}; this.worker.postMessage({type:'hover',x:tx,y:ty});
+            }
+            if (this._copyMode==='select'&&this._copyStart) {
+                const wx4=(e.clientX/this.renderer.zoom)+this.renderer.camX;
+                const wy4=(e.clientY/this.renderer.zoom)+this.renderer.camY;
+                const tx4=Math.floor(wx4/Config.TILE_SIZE), ty4=Math.floor(wy4/Config.TILE_SIZE);
+                this._copyRect={x1:Math.min(this._copyStart.x,tx4),y1:Math.min(this._copyStart.y,ty4),x2:Math.max(this._copyStart.x,tx4),y2:Math.max(this._copyStart.y,ty4)};
+            }
+            if (this._copyMode==='stamp') {
+                const wx5=(e.clientX/this.renderer.zoom)+this.renderer.camX;
+                const wy5=(e.clientY/this.renderer.zoom)+this.renderer.camY;
+                this._stampPos={x:Math.floor(wx5/Config.TILE_SIZE),y:Math.floor(wy5/Config.TILE_SIZE)};
+            }
+            if (isPan){
+                const dx=e.clientX-lx, dy=e.clientY-ly;
+                this.renderer.camX-=dx/this.renderer.zoom; this.renderer.camY-=dy/this.renderer.zoom;
+                this.renderer.targetCamX=null; this.renderer.targetCamY=null;
+                panDist+=Math.abs(dx)+Math.abs(dy); lx=e.clientX; ly=e.clientY;
+            } else if (isBuild) {
+                const dx=e.clientX-lx, dy=e.clientY-ly;
+                panDist+=Math.abs(dx)+Math.abs(dy); lx=e.clientX; ly=e.clientY;
+                if (e.shiftKey && this._shiftLineStart && this.ui.selectedTool && this.ui.selectedTool.startsWith('belt')) {
+                    const _slx2=this._shiftLineStart.x, _sly2=this._shiftLineStart.y;
+                    const _sdx=tx-_slx2, _sdy=ty-_sly2;
+                    const _isH2=Math.abs(_sdx)>=Math.abs(_sdy);
+                    if (_isH2) {
+                        const _step2=_sdx>=0?1:-1;
+                        for (let _xi2=_slx2;_xi2!==tx+_step2;_xi2+=_step2) {
+                            const _k2=_xi2+','+_sly2;
+                            if (!dragPlaced.has(_k2)) { this.worker.postMessage({type:'place',x:_xi2,y:_sly2,buildingType:this.ui.selectedTool,dir:this.ui.rotation}); dragPlaced.add(_k2); }
+                        }
+                    } else {
+                        const _step3=_sdy>=0?1:-1;
+                        for (let _yi2=_sly2;_yi2!==ty+_step3;_yi2+=_step3) {
+                            const _k3=_slx2+','+_yi2;
+                            if (!dragPlaced.has(_k3)) { this.worker.postMessage({type:'place',x:_slx2,y:_yi2,buildingType:this.ui.selectedTool,dir:this.ui.rotation}); dragPlaced.add(_k3); }
+                        }
+                    }
+                    lastDragTile={x:tx,y:ty};
+                } else {
+                const k=tx+","+ty;
+                if (!dragPlaced.has(k)){
+                    // Lane highlight tracking
+                    if (this.ui.selectedTool && this.ui.selectedTool.startsWith('belt') && lastDragTile) {
+                        const _curDir = this.ui.rotation;
+                        if (_curDir === this._laneDir) {
+                            this._laneLen++;
+                        } else {
+                            this._laneDir = _curDir;
+                            this._laneStart = {x:tx, y:ty};
+                            this._laneLen = 1;
+                        }
+                        if (this._laneLen >= 4 && this._laneStart) {
+                            const _bc2 = document.getElementById('blueprint-canvas');
+                            if (_bc2) {
+                                const _bctx2 = _bc2.getContext('2d');
+                                _bctx2.clearRect(0,0,_bc2.width,_bc2.height);
+                                const _T = Config.TILE_SIZE * this.renderer.zoom;
+                                const _offX = -this.renderer.camX * this.renderer.zoom;
+                                const _offY = -this.renderer.camY * this.renderer.zoom;
+                                const _isHoriz = (_curDir===1||_curDir===3);
+                                const _x1 = Math.min(this._laneStart.x, tx);
+                                const _y1 = Math.min(this._laneStart.y, ty);
+                                const _x2 = Math.max(this._laneStart.x, tx);
+                                const _y2 = Math.max(this._laneStart.y, ty);
+                                const _sx = _x1*_T+_offX, _sy = _y1*_T+_offY;
+                                const _sw = (_x2-_x1+1)*_T, _sh = (_y2-_y1+1)*_T;
+                                _bctx2.fillStyle = 'rgba(91,106,175,0.18)';
+                                _bctx2.fillRect(_sx, _sy, _sw, _sh);
+                                _bctx2.strokeStyle = 'rgba(140,160,220,0.55)';
+                                _bctx2.lineWidth = 2;
+                                _bctx2.strokeRect(_sx+1, _sy+1, _sw-2, _sh-2);
+                            }
+                        }
+                    }
+                    this.interact(tx,ty); dragPlaced.add(k); lastDragTile={x:tx,y:ty};
+                }
+                }
+            }
+        });
+        const stop=(e)=>{
+            if (isBuild&&dragPlaced.size===0&&panDist<5&&e&&e.type==="mouseup"&&e.button===0){
+                const wx=(e.clientX/this.renderer.zoom)+this.renderer.camX;
+                const wy=(e.clientY/this.renderer.zoom)+this.renderer.camY;
+                this.interact(Math.floor(wx/Config.TILE_SIZE),Math.floor(wy/Config.TILE_SIZE));
+            }
+            isPan=false; isBuild=false; this._isDragging=false;
+            this._laneDir = -1; this._laneStart = null; this._laneLen = 0;
+            this._shiftLineStart = null;
+            const _lbc = document.getElementById('blueprint-canvas');
+            if (_lbc) { const _lbctx=_lbc.getContext('2d'); _lbctx.clearRect(0,0,_lbc.width,_lbc.height); }
+        };
+        this.canvas.addEventListener('mouseup',stop);
+        this.canvas.addEventListener('mouseleave',()=>{stop();this.uiState.hoverTile=null;this.worker.postMessage({type:'hover',x:-1,y:-1});});
+        this.canvas.addEventListener('wheel',e=>{
+            e.preventDefault();
+            const oz=this.renderer.zoom;
+            this.renderer.zoom=Math.max(0.22,Math.min(2.2,this.renderer.zoom*(e.deltaY>0?0.9:1.1)));
+            this.renderer.camX+=e.clientX*(1/oz-1/this.renderer.zoom);
+            this.renderer.camY+=e.clientY*(1/oz-1/this.renderer.zoom);
+            this.renderer.targetCamX=null; this.renderer.targetCamY=null;
+        },{passive:false});
+        window.addEventListener('keydown',e=>{
+            if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
+            const k=e.key.toLowerCase();
+            if (k==='r'){if(this._copyMode==='stamp'&&this._blueprint&&this._blueprint.length>0){const bp=this._blueprint;let maxDy=0;for(const b of bp){if(b.dy>maxDy)maxDy=b.dy;}for(const b of bp){const oldDx=b.dx,oldDy=b.dy;b.dx=maxDy-oldDy;b.dy=oldDx;b.dir=(b.dir+1)%4;}this._copyRotation=((this._copyRotation||0)+1)%4;this.showToast('Blueprint rotated','rgba(91,106,175,0.9)',1200);}else{this.ui.rotation=(this.ui.rotation+1)%4;this.ui.updateBeltIndicator();}}
+            else if (e.key==='Escape'){
+                this._copyMode=null; this._blueprint=null; this._copyStart=null; this._copyRect=null; this._stampPos=null; this._copyRotation=0;
+                const _bc=document.getElementById('blueprint-canvas');
+                if(_bc){const _bctx=_bc.getContext('2d');_bctx.clearRect(0,0,_bc.width,_bc.height);}
+                this.ui.selectTool(null);
+                document.getElementById('shortcuts-overlay').classList.remove('active');
+                if (this.ui.skillOverlay.classList.contains('active')) this.ui.toggleSkillTree();
+                const rb=document.getElementById('recipe-book-overlay');
+                if (rb.classList.contains('active')) this.ui.toggleRecipeBook();
+                this.hideBuildingInfo();
+            }
+            else if (k==='x') this.ui.selectTool("delete");
+            else if (k==='c') {
+                if (this._copyMode==='stamp'&&this._blueprint) {
+                    this._copyMode=null; this._stampPos=null; this._copyRotation=0;
+                    const bc=document.getElementById('blueprint-canvas');
+                    if (bc){const bctx=bc.getContext('2d');bctx.clearRect(0,0,bc.width,bc.height);}
+                } else {
+                    this._copyMode='select'; this._copyStart=null; this._copyRect=null;
+                    this.ui.selectTool(null);
+                    this.showToast('Copy mode \u2014 click two corners to select area','rgba(91,106,175,0.9)',4000);
+                }
+            }
+            else if (k==='t') { this.ui.toggleSkillTree(); this._checkHint('tree'); this._advanceTutorial('tree_opened'); }
+            else if (k==='b') this.ui.toggleRecipeBook();
+            else if (k==='m'){this.ui.minimapVisible=!this.ui.minimapVisible;this.ui.minimapCanvas.style.display=this.ui.minimapVisible?'block':'none';}
+            else if (k==='s'){const sp=document.getElementById('stats-panel');sp.style.display=sp.style.display==='none'?'block':'none';if(sp.style.display==='block')this._drawSparkline();}
+            else if (k==='h'&&this.spawnX!==null){this.renderer.targetCamX=(this.spawnX*Config.TILE_SIZE)-window.innerWidth/2;this.renderer.targetCamY=(this.spawnY*Config.TILE_SIZE)-window.innerHeight/2;}
+            else if ((k==='z'&&e.ctrlKey)||k==='u') { e.preventDefault(); this.worker.postMessage({type:'undo'}); }
+            else if (k==='f') {
+                this.uiState.debugFlow = !this.uiState.debugFlow;
+                this.showToast(this.uiState.debugFlow ? 'Flow debug ON' : 'Flow debug OFF', null, 1500);
+            }
+            else if (k === 'v') {
+                this.uiState.debugHeatmap = !this.uiState.debugHeatmap;
+                this.showToast(this.uiState.debugHeatmap ? 'Heatmap ON' : 'Heatmap OFF', null, 1500);
+            }
+            else if (e.key==='[') { this._speedIdx=Math.max(0,this._speedIdx-1); this._applySpeed(); }
+            else if (e.key===']') { this._speedIdx=Math.min(this._speed4xUnlocked?this._speedSteps.length-1:3,this._speedIdx+1); this._applySpeed(); }
+            else if (e.key==='?') document.getElementById('shortcuts-overlay').classList.toggle('active');
+            else if (e.key>='1'&&e.key<='9'){
+                const tools=["mine","belt","furnace","seller","splitter","merger","belt2","belt3","assembler","lab"];
+                const t=tools[parseInt(e.key)-1];
+                if (t){const b=document.querySelector('.build-btn[data-id="'+t+'"]');if(b&&!b.classList.contains('locked')&&!b.classList.contains('disabled'))this.ui.selectTool(t);}
+            }
+            else if (k==='0'){const b=document.querySelector('.build-btn[data-id="ore_synthesizer"]');if(b&&!b.classList.contains('locked')&&!b.classList.contains('disabled'))this.ui.selectTool('ore_synthesizer');}
+            else if (k==='='){const b=document.querySelector('.build-btn[data-id="synthesizer"]');if(b&&!b.classList.contains('locked')&&!b.classList.contains('disabled'))this.ui.selectTool('synthesizer');}
+        });
+    }
+    _updateBeltSeamMask(x, y) {
+        if (x < 0 || x >= Config.MAP_W || y < 0 || y >= Config.MAP_H) return;
+        const b = this.state.buildings[y] && this.state.buildings[y][x];
+        if (!b || !b.type || !b.type.startsWith('belt')) return;
+        const _D4 = [[0,-1],[1,0],[0,1],[-1,0]];
+        let mask = 0;
+        for (let d = 0; d < 4; d++) {
+            const nx = x + _D4[d][0], ny = y + _D4[d][1];
+            if (nx < 0 || nx >= Config.MAP_W || ny < 0 || ny >= Config.MAP_H) continue;
+            const nb = this.state.buildings[ny] && this.state.buildings[ny][nx];
+            if (nb && nb.type && nb.type.startsWith('belt')) mask |= (1 << d);
+        }
+        b._seamMask = mask;
+    }
+    interact(x,y){
+        if (!this.ui.selectedTool) return;
+        if (this.ui.selectedTool==="delete") this.worker.postMessage({type:'delete',x,y});
+        else this.worker.postMessage({type:'place',x,y,buildingType:this.ui.selectedTool,dir:this.ui.rotation});
+    }
+    _applySpeed(){
+        const mult=this._speedSteps[this._speedIdx];
+        this.worker.postMessage({type:'speed',mult});
+        const ids=['btn-speed-0','btn-speed-05','btn-speed-1','btn-speed-2','btn-speed-4'];
+        document.querySelectorAll('.speed-btn').forEach(b=>{b.style.color='var(--text-dim)';b.style.background='transparent';});
+        const b=document.getElementById(ids[this._speedIdx]);
+        if(b){b.style.color='var(--text-active)';b.style.background='rgba(91,106,175,0.4)';}
+        const labels=['\u23f8 Paused','\u00bd Speed','\u25b6 Normal','\u00d72 Speed','\u00d74 Speed'];
+        this.showToast(labels[this._speedIdx],null,1200);
+    }
+    hideBuildingInfo() {
+        document.getElementById('building-info-panel').style.display='none';
+        this._bipOpen=null;
+    }
+    showBuildingInfo(b, tx, ty, cx, cy) {
+        const panel=document.getElementById('building-info-panel');
+        const name=b.type.replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase());
+        const cost=Config.BUILD_COSTS[b.type]||0;
+        let rows='';
+        if (b.type==='seller') {
+            rows+='<div class="bip-row">Total sold: <span style="color:var(--gold)">$'+Math.floor(b.totalSold||0)+'</span></div>';
+            const _rk=Object.keys(Config.RESOURCES);
+            const _so='background:#0f111a;border:1px solid var(--border);color:var(--text-active);border-radius:6px;padding:3px 6px;font-size:11px;width:100%;cursor:pointer;margin-top:2px;';
+            const _opts=_rk.map(r=>'<option value="'+r+'"'+(b.sellerFilter===r?' selected':'')+'>'+r.replace(/_/g,' ')+'</option>').join('');
+            rows+='<div class="bip-row" style="flex-direction:column;align-items:flex-start;gap:2px;padding:6px 0 2px;"><span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">Accept Only</span><select id="bip-sell-filter" style="'+_so+'"><option value="">-- All items --</option>'+_opts+'</select></div>';
+        }
+        if (b.type==='ore_synthesizer') {
+            var _osEC2 = b.inventory?.energy_cell || 0;
+            rows+='<div class="bip-row">Energy Cells: '+_osEC2+'</div>';
+            var _baseOres = ['iron_ore','copper_ore','coal','stone','titanium_ore','nebula_dust'];
+            var _osSel = 'background:#0f111a;border:1px solid var(--border);color:var(--text-active);border-radius:6px;padding:3px 6px;font-size:11px;width:100%;cursor:pointer;margin-top:2px;';
+            var _osOpts = _baseOres.map(function(r){return '<option value="'+r+'"'+(b.synthOre===r?' selected':'')+'>'+r.replace(/_/g,' ')+'</option>';}).join('');
+            rows+='<div class="bip-row" style="flex-direction:column;align-items:flex-start;gap:2px;padding:6px 0 2px;"><span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">Output Ore</span><select id="bip-os-filter" style="'+_osSel+'"><option value="">-- Select ore --</option>'+_osOpts+'</select></div>';
+        }
+        if (b.type.startsWith('belt')||b.type==='splitter'||b.type==='merger'||b.type==='tunnel_in'||b.type==='tunnel_out') rows+='<div class="bip-row">Items passed: '+(b.itemsPassed||0)+'</div>';
+        if (b.type.startsWith('belt')) {
+            const _ctColors=[
+                {v:'#e05050',label:'Red'},
+                {v:'#e08830',label:'Orange'},
+                {v:'#50a0e0',label:'Blue'},
+                {v:'#50c870',label:'Green'},
+                {v:'#c850e0',label:'Purple'},
+                {v:'#d4af37',label:'Gold'}
+            ];
+            const _ctSel='background:#0f111a;border:1px solid var(--border);color:var(--text-active);border-radius:6px;padding:3px 6px;font-size:11px;width:100%;cursor:pointer;margin-top:2px;';
+            const _ctOpts=_ctColors.map(c=>'<option value="'+c.v+'"'+(b.colorTag===c.v?' selected':'')+'>'+c.label+'</option>').join('');
+            rows+='<div class="bip-row" style="flex-direction:column;align-items:flex-start;gap:2px;padding:6px 0 2px;"><span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">Lane Color</span><select id="bip-colortag" style="'+_ctSel+'"><option value="">— None —</option>'+_ctOpts+'</select></div>';
+        }
+        if (b.type==='splitter') {
+            const rKeys=Object.keys(Config.RESOURCES);
+            const mkOpts=(cur)=>rKeys.map(r=>'<option value="'+r+'"'+(cur===r?' selected':'')+'>'+r.replace(/_/g,' ')+'</option>').join('');
+            const sel='background:#0f111a;border:1px solid var(--border);color:var(--text-active);border-radius:6px;padding:3px 6px;font-size:11px;width:100%;cursor:pointer;margin-top:2px;';
+            rows+='<div class="bip-row" style="flex-direction:column;align-items:flex-start;gap:2px;padding:6px 0 2px;">'
+                +'<span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">Item Filter</span>'
+                +'<span style="font-size:11px;color:var(--text-dim);">← Left</span>'
+                +'<select id="bip-fL" style="'+sel+'"><option value="">— Any —</option>'+mkOpts(b.filterL||'')+'</select>'
+                +'<span style="font-size:11px;color:var(--text-dim);">→ Right</span>'
+                +'<select id="bip-fR" style="'+sel+'"><option value="">— Any —</option>'+mkOpts(b.filterR||'')+'</select>'
+                +'</div>';
+        }
+        if (b.type==='mine') {
+            const pct=b.initialOre?Math.round((b.remainingOre/b.initialOre)*100):100;
+            rows+='<div class="bip-row">Ore remaining: '+pct+'%</div>';
+        }
+        if (b.type==='vein_miner') {
+            const _vmPct2=b.initialOre?Math.round((b.remainingOre/b.initialOre)*100):100;
+            const _vmTc=b._veinLeft!==undefined?b._veinLeft:(b.veinTiles?b.veinTiles.length:0);
+            const _vmOt=(b.oreType||'unknown').replace(/_/g,' ');
+            rows+='<div class="bip-row">Ore type: '+_vmOt+'</div>';
+            rows+='<div class="bip-row">Vein tiles: '+_vmTc+'</div>';
+            rows+='<div class="bip-row">Ore remaining: '+_vmPct2+'%</div>';
+        }
+        if (b.type==='furnace'||b.type==='assembler'||b.type==='ore_synthesizer'||b.type==='synthesizer') {
+            const inv=Object.entries(b.inventory||{}).filter(([,v])=>v>0).map(([k,v])=>'<span style="'+itemDotStyle(k,10)+'"></span> '+v+'\u00d7 '+k.replace(/_/g,' ')).join(', ');
+            rows+='<div class="bip-row" id="bip-inv" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">Inventory: '+(inv||'empty')+'</div>';
+        }
+        if (b.type==='assembler'||b.type==='synthesizer') {
+            const sel='background:#0f111a;border:1px solid var(--border);color:var(--text-active);border-radius:6px;padding:3px 6px;font-size:11px;width:100%;cursor:pointer;margin-top:2px;';
+            const _bipRecipeType = b.type==='synthesizer' ? 'synthesizer' : 'assembler';
+            const mkRecipeOpts=()=>Config.RECIPES[_bipRecipeType].map(r=>{
+                const ing=Object.entries(r.in).map(([k,v])=>v+'\u00d7 '+k.replace(/_/g,' ')).join(', ');
+                return '<option value="'+r.out+'"'+(b.lockedRecipe===r.out?' selected':'')+'>'+r.out.replace(/_/g,' ')+' ('+ing+')</option>';
+            }).join('');
+            rows+='<div class="bip-row" style="flex-direction:column;align-items:flex-start;gap:2px;padding:6px 0 2px;">'
+                +'<span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">Recipe Lock</span>'
+                +'<select id="bip-recipe" style="'+sel+'"><option value="">— Auto (first match) —</option>'+mkRecipeOpts()+'</select>'
+                +'</div>';
+        }
+        rows+='<div class="bip-row">Refund: <span style="color:var(--sell)">$'+Math.floor(cost*0.5)+'</span></div>';
+        panel.innerHTML='<div class="bip-title">'+name+'</div>'+rows+'<button class="bip-delete" id="bip-del-btn">Delete (50% refund)</button>';
+        if (b.type==='furnace'||b.type==='assembler'||b.type==='ore_synthesizer'||b.type==='synthesizer') this._bipOpen={x:tx,y:ty,type:b.type};
+        else this._bipOpen=null;
+        document.getElementById('bip-del-btn').onclick=()=>{
+            this.worker.postMessage({type:'delete',x:tx,y:ty});
+            this.hideBuildingInfo();
+        };
+        if (b.type==='splitter') {
+            const applyF=()=>{
+                const fL=document.getElementById('bip-fL')?.value||null;
+                const fR=document.getElementById('bip-fR')?.value||null;
+                this.worker.postMessage({type:'set_filter',x:tx,y:ty,filterL:fL||null,filterR:fR||null});
+            };
+            document.getElementById('bip-fL')?.addEventListener('change',applyF);
+            document.getElementById('bip-fR')?.addEventListener('change',applyF);
+        }
+        if (b.type==='assembler'||b.type==='synthesizer') {
+            document.getElementById('bip-recipe')?.addEventListener('change', e => {
+                const recipe = e.target.value || null;
+                b.lockedRecipe = recipe; // update stale snapshot for re-open
+                this.worker.postMessage({type:'set_recipe', x:tx, y:ty, recipe});
+            });
+        }
+        if (b.type==='seller') {
+            document.getElementById('bip-sell-filter')?.addEventListener('change', e => {
+                const item = e.target.value || null;
+                b.sellerFilter = item;
+                this.worker.postMessage({type:'set_seller_filter', x:tx, y:ty, item});
+            });
+        }
+        if (b.type==='ore_synthesizer') {
+            document.getElementById('bip-os-filter')?.addEventListener('change', e => {
+                const oreType = e.target.value || null;
+                b.synthOre = oreType;
+                this.worker.postMessage({type:'set_ore_synth_filter', x:tx, y:ty, oreType});
+            });
+        }
+        const _ctEl = document.getElementById('bip-colortag');
+        if (_ctEl) {
+            const _self = this;
+            _ctEl.addEventListener('change', e => {
+                const _b2 = _self.state.buildings[ty]?.[tx];
+                if (_b2) _b2.colorTag = e.target.value || null;
+            });
+        }
+        panel.style.visibility='hidden'; panel.style.display='block';
+        const pw=panel.offsetWidth, ph=panel.offsetHeight;
+        panel.style.visibility='';
+        let px=cx+12, py=cy+12;
+        if (px+pw>window.innerWidth) px=cx-pw-12;
+        if (py+ph>window.innerHeight) py=cy-ph-12;
+        px=Math.max(0,px); py=Math.max(0,py);
+        panel.style.left=px+'px'; panel.style.top=py+'px';
+    }
+    _drawBlueprintOverlay() {
+        const bc=document.getElementById('blueprint-canvas');
+        if (!bc) return;
+        const bctx=bc.getContext('2d');
+        const W=window.innerWidth, H=window.innerHeight;
+        if (bc.width!==W||bc.height!==H){bc.width=W;bc.height=H;}
+        bctx.clearRect(0,0,W,H);
+        const T=Config.TILE_SIZE, z=this.renderer.zoom, cx=this.renderer.camX, cy=this.renderer.camY;
+        const tw=(x)=>(x*T-cx)*z, th=(y)=>(y*T-cy)*z;
+        if (this._copyMode==='select'&&this._copyStart&&this._copyRect) {
+            const r=this._copyRect;
+            bctx.fillStyle='rgba(91,106,175,0.18)';
+            bctx.strokeStyle='rgba(140,160,220,0.8)';
+            bctx.lineWidth=2;
+            bctx.beginPath();
+            bctx.rect(tw(r.x1),th(r.y1),(r.x2-r.x1+1)*T*z,(r.y2-r.y1+1)*T*z);
+            bctx.fill(); bctx.stroke();
+        }
+        if (this._copyMode==='stamp'&&this._blueprint&&this._stampPos) {
+            bctx.globalAlpha=0.5;
+            for (const item of this._blueprint) {
+                const gx=this._stampPos.x+item.dx, gy=this._stampPos.y+item.dy;
+                bctx.fillStyle=Config.COLORS[item.type]||'#5b6aaf';
+                bctx.fillRect(tw(gx)+2,th(gy)+2,T*z-4,T*z-4);
+            }
+            bctx.globalAlpha=1;
+        }
+    }
+    showAscendantScreen(qc) {
+        const sc=document.getElementById('ascendant-screen');
+        if (!sc) return;
+        sc.style.display='flex';
+        var countEl=document.getElementById('ascendant-count');
+        if (countEl) countEl.textContent=qc+' Quantum Cores produced';
+        document.getElementById('ascendant-continue-btn').onclick=function(){sc.style.display='none';};
+    }
+    showTranscendentScreen(count) {
+        if (this._transcShown) return;
+        this._transcShown=true;
+        const sc=document.getElementById('transcendent-screen');
+        if (!sc) return;
+        sc.style.display='flex';
+        var countEl=document.getElementById('transcendent-count');
+        if (countEl) countEl.textContent=count+' Singularity Shards produced';
+        document.getElementById('transcendent-continue-btn').onclick=function(){sc.style.display='none';};
+    }
+    showEndScreen() {
+        if (this._endShown) return;
+        this._endShown=true;
+        const sc=document.getElementById('end-screen');
+        sc.style.display='flex';
+        document.getElementById('end-stats').innerHTML=
+            'Credits: <span style="color:var(--gold)">$'+fmtNum(this.state.money)+'</span><br>'+
+            'Research: <span style="color:var(--research)">'+fmtNum(this.state.rp)+' RP</span><br>'+
+            'Singularity Shards: <span style="color:#c87adf">'+(this.state.singularityCount||0)+'</span><br>'+
+            'Buildings placed: <span style="color:#e2e8f0">'+(this._totalPlaced||0)+'</span>';
+        document.getElementById('end-continue-btn').onclick=()=>{sc.style.display='none';};
+        document.getElementById('end-new-btn').onclick=()=>{localStorage.removeItem('mf_seed');location.reload();};
+    }
+    _checkHint(id) {
+        if (this._hintShown[id]) return;
+        if (localStorage.getItem('mf_hint_'+id)) { this._hintShown[id]=true; return; }
+        const hints={
+            start:  '\u26cf Place a Mine on a coloured ore tile to begin',
+            belt:   '\u2192 Drag a Belt from the Mine output to route items',
+            seller: '\u2713 Connect belt to a Seller (\uFF04) to earn Credits',
+            stuck:  '\u21ba Make sure Mine output arrow points toward the belt',
+            lab:    '\u2261 Build a Lab and route items to it \u2014 earns Research Points',
+            tree:   'T opens the Skill Tree \u2014 spend RP to unlock upgrades'
+        };
+        if (!hints[id]) return;
+        this._hintShown[id]=true;
+        try { localStorage.setItem('mf_hint_'+id,'1'); } catch(e) {}
+        if (!this._tutorialActive) this.showToast(hints[id],'rgba(91,106,175,0.9)',5000);
+    }
+    _showTutorialStep() {
+        if (!this._tutorialActive) return;
+        if (this._tutorialStep>=this._tutorialSteps.length) { this._dismissTutorial(); return; }
+        const banner=document.getElementById('tutorial-banner');
+        const stepEl=document.getElementById('tutorial-step');
+        const dotsEl=document.getElementById('tutorial-dots');
+        if (!banner||!stepEl) return;
+        const step=this._tutorialSteps[this._tutorialStep];
+        stepEl.innerHTML=step.text;
+        let dots='';
+        for (let i=0;i<this._tutorialSteps.length;i++) dots+=i<this._tutorialStep?'\u25CF':i===this._tutorialStep?'\u25C9':'\u25CB';
+        dotsEl.textContent=dots;
+        banner.style.display='block';
+    }
+    _advanceTutorial(trigger) {
+        if (!this._tutorialActive) return;
+        if (this._tutorialStep>=this._tutorialSteps.length) return;
+        if (this._tutorialSteps[this._tutorialStep].trigger===trigger) {
+            this._tutorialStep++;
+            if (this._tutorialStep>=this._tutorialSteps.length) {
+                this._dismissTutorial();
+                this.showToast('Tutorial complete \u2014 happy building!','rgba(91,170,106,0.9)',3000);
+            } else {
+                this._showTutorialStep();
+            }
+        }
+    }
+    _dismissTutorial() {
+        this._tutorialActive=false;
+        document.getElementById('tutorial-banner').style.display='none';
+        try { localStorage.setItem('mf_hint_tutorial_done','1'); } catch(e) {}
+    }
+    spawnRpFloat(tx, ty, val) {
+        const T = Config.TILE_SIZE;
+        const el = document.createElement('div');
+        el.style.cssText = 'position:absolute;pointer-events:none;z-index:300;font-family:"Fira Code",monospace;font-size:12px;font-weight:600;color:#c084fc;text-shadow:0 0 8px rgba(160,91,210,0.8);white-space:nowrap;transition:transform 1.2s ease-out,opacity 1.2s ease-out;';
+        el.textContent = '+' + val + ' RP';
+        const wx = (tx * T + T/2 - this.renderer.camX) * this.renderer.zoom;
+        const wy = (ty * T - this.renderer.camY) * this.renderer.zoom;
+        el.style.left = wx + 'px';
+        el.style.top = wy + 'px';
+        document.body.appendChild(el);
+        requestAnimationFrame(() => {
+            el.style.transform = 'translateY(-40px)';
+            el.style.opacity = '0';
+        });
+        setTimeout(() => el.remove(), 1300);
+    }
+    showMilestoneFlash() {
+        const el = document.createElement('div');
+        el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:500;background:radial-gradient(ellipse at center,rgba(212,175,55,0.18) 0%,transparent 70%);opacity:1;transition:opacity 1.8s ease-out;';
+        document.body.appendChild(el);
+        requestAnimationFrame(() => { requestAnimationFrame(() => { el.style.opacity = '0'; }); });
+        setTimeout(() => el.remove(), 2000);
+    }
+    showSkillPulse() {
+        const el = document.createElement('div');
+        el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:500;background:radial-gradient(ellipse at center,rgba(160,91,210,0.12) 0%,transparent 65%);opacity:1;transition:opacity 1.0s ease-out;';
+        document.body.appendChild(el);
+        requestAnimationFrame(() => { requestAnimationFrame(() => { el.style.opacity = '0'; }); });
+        setTimeout(() => el.remove(), 1100);
+    }
+    showToast(msg, color, duration) {
+        if (!this._toastQueue) this._toastQueue=[];
+        this._toastQueue.push({msg, color, duration:duration||3000});
+        if (!this._toastActive) this._drainToast();
+    }
+    _drainToast() {
+        if (!this._toastQueue||!this._toastQueue.length){this._toastActive=false;return;}
+        this._toastActive=true;
+        const item=this._toastQueue.shift();
+        const t=document.getElementById('toast-msg');
+        t.textContent=item.msg;
+        t.style.borderColor=item.color==='gold'?'var(--gold)':item.color?item.color:'var(--border-highlight)';
+        t.style.color=item.color==='gold'?'var(--gold)':'var(--text-active)';
+        t.classList.remove('toast-out'); t.classList.add('toast-in');
+        clearTimeout(this._toastTimer);
+        this._toastTimer=setTimeout(()=>{
+            t.classList.remove('toast-in'); t.classList.add('toast-out');
+            setTimeout(()=>this._drainToast(),280);
+        }, item.duration);
+    }
+    _drawSparkline() {
+        const cv = document.getElementById('earn-sparkline');
+        if (!cv) return;
+        const ctx = cv.getContext('2d');
+        const w = cv.width, h = cv.height;
+        ctx.clearRect(0, 0, w, h);
+        const hist = this._earnHistory;
+        if (!hist || hist.length < 2) return;
+        const mx = Math.max(...hist);
+        const pts = hist.map((v, i) => [i / (hist.length - 1) * w, mx > 0 ? h - (v / mx) * (h - 4) - 2 : h - 2]);
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], h);
+        ctx.lineTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+        ctx.lineTo(pts[pts.length - 1][0], h);
+        ctx.closePath();
+        ctx.globalAlpha = 0.15;
+        ctx.fillStyle = 'rgb(90,170,106)';
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+        ctx.strokeStyle = '#5aaa6a';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => new Game());
+</script>
+</body>
+</html>
++msg.rewardMoney+
+                    ' · +'+msg.rewardRP+' Research Data','gold',4200);
+            } else if (msg.type==='contract_rejected') {
+                this.updateFactoryContractBoard(msg.contractBoard);
+                this.showToast('Shipment not yet fulfilled. Produce and sell the required items first.');
             } else if (msg.type==='save_game') {
                 this._lastSaveJson = msg.json;
                 this._lastSaveData = msg.data;
