@@ -441,6 +441,7 @@ let state = {
     unlockedTechs: new Set(), isLoadedFromSave: false,
     minedCells: new Set(), stats: { totalEarned: 0, totalRP: 0 },
     lifetimeSold: 0, lifetimeItems: 0,
+    contractStage: 0, contractBaseline: 0,
     recipeMastery: {}
 };
 
@@ -457,6 +458,33 @@ let firedMilestones = new Set();
 let statTotals = {};
 var _quantumCoreCount = 0;
 var _singularityCount = 0;
+/**
+ * Live contract scoreboard uses only confirmed, sold units from the Seller.
+ * Never trust client-provided item counts, money, or completion flags.
+ */
+function contractStatus() {
+    const stage=state.contractStage;
+    const item=Config.CONTRACTS[stage];
+    if(!item)return {stage:Config.CONTRACTS.length,done:true,progress:0,required:0};
+    const total=Number(statTotals[item.item])||0;
+    return {stage,done:false,id:item.id,name:item.name,item:item.item,
+        progress:Math.min(item.quantity,Math.max(0,total-state.contractBaseline)),
+        required:item.quantity,rewardMoney:item.rewardMoney,rewardRP:item.rewardRP};
+}
+function claimFactoryContract(stage) {
+    const current=contractStatus();
+    if(current.done||stage!==current.stage||current.progress<current.required) return false;
+    state.money+=current.rewardMoney;
+    state.rp+=current.rewardRP;
+    state.contractStage++;
+    const next=Config.CONTRACTS[state.contractStage];
+    state.contractBaseline=next?(Number(statTotals[next.item])||0):0;
+    postMessage({type:'contract_claimed',money:state.money,rp:state.rp,
+        rewardMoney:current.rewardMoney,rewardRP:current.rewardRP,
+        name:current.name,contractBoard:contractStatus()});
+    emitSave();
+    return true;
+}
 let passHistoryMap = new Map();
 const _arrivedAtMap = new Map();
 const _arrivedArrayPool = []; // pool of reusable arrays — avoids per-tick allocation
@@ -608,6 +636,7 @@ function emitSave() {
         sparseBuildings:sparseBuildings, unlockedTechs:Array.from(state.unlockedTechs), oreData:oreData,
         firedMilestones:Array.from(firedMilestones), quantumCoreCount:_quantumCoreCount, singularityCount:_singularityCount,
         lifetimeSold:state.lifetimeSold, lifetimeItems:state.lifetimeItems, statTotals:statTotals,
+        contractStage:state.contractStage,contractBaseline:state.contractBaseline,
         recipeMastery:state.recipeMastery };
     postMessage({ type:'save_game', data:_saveObj, json:JSON.stringify(_saveObj) });
 }
@@ -665,6 +694,14 @@ self.onmessage = function(e) {
                 state.lifetimeItems = Math.max(0, Number(msg.save.lifetimeItems) || 0);
                 for (var _stk in msg.save.statTotals) statTotals[_stk] = msg.save.statTotals[_stk];
                 state.recipeMastery = msg.save.recipeMastery;
+                // Old saves begin from the current lifetime sold count, not
+                // from historical goods (which cannot be claimed retroactively).
+                state.contractStage=Number.isSafeInteger(msg.save.contractStage)?
+                    Math.max(0,Math.min(Config.CONTRACTS.length,msg.save.contractStage)):0;
+                const _ct=Config.CONTRACTS[state.contractStage];
+                const _sold=_ct?Math.max(0,Number(statTotals[_ct.item])||0):0;
+                state.contractBaseline=Number.isSafeInteger(msg.save.contractBaseline)?
+                    Math.max(0,Math.min(_sold,msg.save.contractBaseline)):_sold;
                 const MH2 = Config.MAP_H, MW2 = Config.MAP_W;
                 state.buildings = new Array(MH2).fill(null).map(() => new Array(MW2).fill(null));
                 for (const [key, b] of Object.entries(msg.save.sparseBuildings)) {
@@ -725,7 +762,7 @@ self.onmessage = function(e) {
             }
             postMessage({ type:'init_done', map:state.map, money:state.money, rp:state.rp,
                 startX:state._initStartX, startY:state._initStartY, buildings:state.buildings,
-                unlockedTechs:Array.from(state.unlockedTechs) });
+                unlockedTechs:Array.from(state.unlockedTechs),contractBoard:contractStatus() });
             lastTick = performance.now();
             (function scheduleTick() { tick(performance.now()); setTimeout(scheduleTick, 16); })();
             break;
@@ -743,6 +780,10 @@ self.onmessage = function(e) {
         case 'hover': hoverX = msg.x; hoverY = msg.y; break;
         case 'undo': tryUndo(); break;
         case 'force_save': emitSave(); break;
+        case 'claim_contract':
+            if(!claimFactoryContract(msg.stage))
+                postMessage({type:'contract_rejected',contractBoard:contractStatus()});
+            break;
         case 'set_recipe':
             var _srb = state.buildings[msg.y]&&state.buildings[msg.y][msg.x];
             if (_srb&&(_srb.type==='assembler'||_srb.type==='synthesizer')) {
@@ -1207,7 +1248,7 @@ function tick(now) {
         _ib[_bb+4]=_it.progress; _ib[_bb+5]=_rKeyIdx[_it.type]||0; _ib[_bb+6]=_it.lane||0;
     }
     var _stSnap = (_tickN % 4 === 0) ? statTotals : undefined;
-    postMessage({ type:'tick', itemsBuf:_ib.buffer, itemCount:_ic, money:state.money, rp:state.rp, hoverData, stats, itemCounts, oreProgress, buildingStats, statTotals:_stSnap, quantumCoreCount:_quantumCoreCount, singularityCount:_singularityCount, lifetimeSold:state.lifetimeSold, lifetimeItems:state.lifetimeItems }, [_ib.buffer]);
+    postMessage({ type:'tick', itemsBuf:_ib.buffer, itemCount:_ic, money:state.money, rp:state.rp, hoverData, stats, itemCounts, oreProgress, buildingStats, statTotals:_stSnap, contractBoard:(_tickN%4===0?contractStatus():undefined),quantumCoreCount:_quantumCoreCount, singularityCount:_singularityCount, lifetimeSold:state.lifetimeSold, lifetimeItems:state.lifetimeItems }, [_ib.buffer]);
 
     if (now - lastSaveTime > 5000) { emitSave(); lastSaveTime = now; }
 }
@@ -1653,6 +1694,15 @@ function pushOutput(x,y,b) {
 // ── Config ────────────────────────────────────────────────────────────────────
 const Config = {
     TILE_SIZE: 40, MAP_W: 250, MAP_H: 250, BELT_CAPACITY: 10,
+    // Original ATLAS export commission chain; shipped products count ONLY after
+    // the real worker's Seller consumes items and increments statTotals.
+    CONTRACTS: [
+      {id:'iron-depot',name:'Iron Depot Starter',item:'iron_ore',quantity:6,rewardMoney:35,rewardRP:12},
+      {id:'copper-exchange',name:'Copper Exchange',item:'copper_ore',quantity:8,rewardMoney:55,rewardRP:25},
+      {id:'smelter-works',name:'Smelter Works',item:'iron_bar',quantity:6,rewardMoney:100,rewardRP:50},
+      {id:'steel-supply',name:'Steel Supply Chain',item:'steel',quantity:4,rewardMoney:180,rewardRP:85},
+      {id:'circuits-lab',name:'Circuit Research Order',item:'circuit',quantity:3,rewardMoney:300,rewardRP:150}
+    ],
     COLORS: {
         bg:"#0f111a", gold:"#d4af37", research:"#a05bd2", sell:"#5aaa6a",
         mine:"#4a5b7a", belt:"#3a3e52", belt2:"#2d3852", belt3:"#1c2642", beltArrow:"rgba(154,168,198,0.5)",
