@@ -4891,6 +4891,7 @@ class Game {
         }
         this.worker.postMessage({type:'init',seed:this.seed,save:_parsedSave});
         this.setupWorker(); this.setupInput();
+        this.setupFactoryContracts();
 
         // Sync save on page hide / close (covers F5, tab close, navigate away)
         window.addEventListener('beforeunload', ()=>{
@@ -5004,6 +5005,51 @@ class Game {
             }
             for (let _ri=0;_ri<_toRemove.length;_ri++) this._alertedBuildings.delete(_toRemove[_ri]);
         }, 15000);
+    }
+    setupFactoryContracts() {
+        const panel=document.getElementById('factory-contract-overlay');
+        const open=document.getElementById('factory-contract-btn');
+        const close=document.getElementById('factory-contract-close');
+        open.addEventListener('click',()=>{
+            panel.hidden=false;
+            this.updateFactoryContractBoard(this.state.contractBoard);
+            close.focus();
+        });
+        close.addEventListener('click',()=>{panel.hidden=true;open.focus();});
+        panel.addEventListener('click',e=>{
+            if(e.target===panel){panel.hidden=true;open.focus();}
+        });
+        window.addEventListener('keydown',e=>{
+            if(e.key==='Escape'&&!panel.hidden){e.preventDefault();panel.hidden=true;open.focus();}
+        });
+        document.getElementById('factory-contract-claim').addEventListener('click',()=>{
+            const status=this.state.contractBoard;
+            if(!status||status.done||status.progress<status.required)return;
+            this.worker.postMessage({type:'claim_contract',stage:status.stage});
+        });
+    }
+    updateFactoryContractBoard(status) {
+        if(!status)return;
+        const old=this.state.contractBoard;
+        this.state.contractBoard=status;
+        const panel=document.getElementById('factory-contract-overlay');
+        if(panel.hidden&&old&&old.stage===status.stage&&old.progress===status.progress)return;
+        const id=x=>document.getElementById(x);
+        id('factory-contract-name').textContent=status.done?'All contracts completed':status.name;
+        id('factory-contract-item').textContent=status.done?
+            'Every signed export commission has been delivered. Your factory is operating independently.':
+            'Ship '+status.required+' × '+status.item.replace(/_/g,' ')+' into your actual Seller building.';
+        id('factory-contract-progress').textContent=status.done?
+            Config.CONTRACTS.length+' / '+Config.CONTRACTS.length+' fully delivered':
+            status.progress+' / '+status.required+' confirmed sales since this contract opened';
+        id('factory-contract-fill').style.width=status.done?'100%':Math.min(100,100*status.progress/Math.max(1,status.required))+'%';
+        id('factory-contract-reward').textContent=status.done?'ALL REWARDS CLAIMED':
+            'Contract reward: $'+status.rewardMoney+' + '+status.rewardRP+' Research Data';
+        id('factory-contract-claim').disabled=!!status.done||status.progress<status.required;
+        id('factory-contract-claim').textContent=status.done?'Commission complete':
+            status.progress>=status.required?'Claim earned reward':'Keep producing to unlock';
+        id('factory-contract-sheet').querySelector('.contract-stage').textContent=status.done?
+            'COMPLETE · 5 / 5': 'ACTIVE EXPORT DEAL · '+(status.stage+1)+' / '+Config.CONTRACTS.length;
     }
     setupWorker() {
         this.worker.onmessage=(e)=>{
